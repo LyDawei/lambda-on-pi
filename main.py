@@ -1,10 +1,27 @@
 import importlib.util
+import logging
 import uuid
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-FUNCTIONS_DIR = Path(__file__).parent / 'functions'
+BASE_DIR = Path(__file__).parent
+FUNCTIONS_DIR = BASE_DIR / 'functions'
+LOGS_DIR = BASE_DIR / 'logs'
+LOG_FILE = LOGS_DIR / 'output.log'
+
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+logger = logging.getLogger("lambda_on_pi")
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    file_handler = logging.FileHandler(LOG_FILE)
+    formatter = logging.Formatter(
+        '%(asctime)s %(levelname)s [%(name)s] %(message)s'
+    )
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
 app = FastAPI()
 
 class InvokeRequest(BaseModel):
@@ -29,6 +46,7 @@ async def invoke(func_name: str, req: InvokeRequest):
     try:
         handler = load_function(func_name)
     except (FileNotFoundError, AttributeError) as e:
+        logger.error(f"Function load error for {func_name}: {e}")
         raise HTTPException(status_code=404, detail=str(e))
 
     context = {
@@ -36,8 +54,11 @@ async def invoke(func_name: str, req: InvokeRequest):
     }
 
     try:
+        logger.info(f"Invoking function={func_name} request_id={context['request_id']} event={req.event}")
         result = handler(req.event, context)
+        logger.info(f"Function={func_name} request_id={context['request_id']} result={result}")
     except Exception as e:
+        logger.exception(f"Error while executing function={func_name} request_id={context['request_id']}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
     return {
