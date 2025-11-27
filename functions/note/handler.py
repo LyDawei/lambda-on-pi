@@ -19,11 +19,3 @@ def handler(event, context):
         'message': f'Note received: {note}',
         'request_id': context['request_id']
     }
-
-def handler(event, context):
-    note = event.get('note', '')
-
-    return {
-        'message': f'Note received: {note}',
-        'request_id': context['request_id']
-    }
