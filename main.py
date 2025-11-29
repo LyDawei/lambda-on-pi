@@ -27,6 +27,10 @@ app = FastAPI()
 class InvokeRequest(BaseModel):
     event: dict
 
+class DeployRequest(BaseModel):
+    func_name: str
+    func_body: str
+
 def load_function(func_name:str):
     func_path = FUNCTIONS_DIR / func_name / 'handler.py'
     if not func_path.exists():
@@ -64,4 +68,27 @@ async def invoke(func_name: str, req: InvokeRequest):
     return {
         'result':result,
         'request_id':context['request_id']
+    }
+
+@app.post('/deploy')
+async def deploy(req: DeployRequest):
+    request_id = str(uuid.uuid4())
+    func_name = req.func_name
+    func_body = req.func_body
+
+    func_dir = FUNCTIONS_DIR / func_name
+    handler_path = func_dir / 'handler.py'
+
+    try:
+        logger.info(f"Deploying function={func_name} request_id={request_id}")
+        func_dir.mkdir(parents=True, exist_ok=True)
+        handler_path.write_text(func_body)
+        logger.info(f"Function={func_name} deployed successfully request_id={request_id}")
+    except Exception as e:
+        logger.exception(f"Error deploying function={func_name} request_id={request_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {
+        'message': f'Function {func_name} deployed successfully',
+        'request_id': request_id
     }
