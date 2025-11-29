@@ -1,5 +1,6 @@
 import json
 import logging
+import shutil
 import subprocess
 import sys
 import uuid
@@ -15,6 +16,10 @@ SANDBOX_RUNNER = BASE_DIR / 'sandbox_runner.py'
 
 # Security: Maximum execution time for handlers (in seconds)
 HANDLER_TIMEOUT = 30
+
+# Check if bubblewrap is available for Linux sandboxing
+BWRAP_PATH = shutil.which('bwrap')
+USE_BWRAP = BWRAP_PATH is not None
 
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -37,12 +42,77 @@ class DeployRequest(BaseModel):
     func_name: str
     func_body: str
 
+def _build_bwrap_command(func_path: Path) -> list:
+    """
+    Build the bubblewrap command for sandboxed execution.
+
+    Creates a minimal, isolated environment with:
+    - Read-only access to Python and system libraries
+    - Read-only access to the function handler
+    - Read-write access only to logs directory
+    - No network access
+    - Isolated PID/IPC/UTS namespaces
+    - Temporary /tmp filesystem
+    """
+    python_path = sys.executable
+    func_dir = func_path.parent
+
+    cmd = [
+        BWRAP_PATH,
+        # Namespace isolation
+        '--unshare-user',
+        '--unshare-pid',
+        '--unshare-ipc',
+        '--unshare-uts',
+        '--unshare-cgroup',
+        # Network isolation - block all network access
+        '--unshare-net',
+        # Die when parent process dies
+        '--die-with-parent',
+        # New session to prevent terminal access
+        '--new-session',
+        # Read-only bind mounts for Python and system libraries
+        '--ro-bind', '/usr', '/usr',
+        '--ro-bind', '/lib', '/lib',
+        '--ro-bind', '/bin', '/bin',
+        # Symlink for /lib64 if it exists (common on 64-bit systems)
+        *(('--ro-bind', '/lib64', '/lib64') if Path('/lib64').exists() else ()),
+        # /etc for basic system config (timezone, etc.) - read-only
+        '--ro-bind', '/etc', '/etc',
+        # Python executable (in case it's not in /usr)
+        '--ro-bind', python_path, python_path,
+        # Sandbox runner script - read-only
+        '--ro-bind', str(SANDBOX_RUNNER), str(SANDBOX_RUNNER),
+        # Function directory - read-only
+        '--ro-bind', str(func_dir), str(func_dir),
+        # Logs directory - read-write for functions that need to write logs
+        '--bind', str(LOGS_DIR), str(LOGS_DIR),
+        # Minimal /dev
+        '--dev', '/dev',
+        # Proc filesystem (needed for some Python operations)
+        '--proc', '/proc',
+        # Temporary filesystem
+        '--tmpfs', '/tmp',
+        # Set working directory
+        '--chdir', '/tmp',
+        # The actual command to run
+        python_path, str(SANDBOX_RUNNER),
+    ]
+
+    return cmd
+
+
 def execute_handler_isolated(func_name: str, event: dict, context: dict) -> dict:
     """
-    Execute a function handler in an isolated subprocess.
+    Execute a function handler in an isolated sandbox.
 
-    This provides security isolation by running the handler in a separate
-    Python process with no access to the main application's namespace.
+    Uses bubblewrap (bwrap) on Linux for strong isolation:
+    - Filesystem: Read-only except for logs directory
+    - Network: Completely blocked
+    - Namespaces: Isolated PID, IPC, UTS, user, cgroup
+    - Resources: Timeout protection
+
+    Falls back to basic subprocess isolation if bwrap is unavailable.
 
     Args:
         func_name: Name of the function to execute
@@ -70,20 +140,35 @@ def execute_handler_isolated(func_name: str, event: dict, context: dict) -> dict
     })
 
     try:
-        # Execute the handler in an isolated subprocess
-        result = subprocess.run(
-            [sys.executable, str(SANDBOX_RUNNER)],
-            input=sandbox_input,
-            capture_output=True,
-            text=True,
-            timeout=HANDLER_TIMEOUT,
-            # Security: Don't inherit environment variables that might leak secrets
-            env={
-                'PATH': '/usr/bin:/bin',
-                'PYTHONPATH': '',
-                'HOME': '/tmp',
-            }
-        )
+        if USE_BWRAP:
+            # Use bubblewrap for strong Linux sandboxing
+            cmd = _build_bwrap_command(func_path)
+            result = subprocess.run(
+                cmd,
+                input=sandbox_input,
+                capture_output=True,
+                text=True,
+                timeout=HANDLER_TIMEOUT,
+                env={
+                    'PATH': '/usr/bin:/bin',
+                    'HOME': '/tmp',
+                }
+            )
+        else:
+            # Fallback: basic subprocess isolation (no bwrap available)
+            logger.warning("bubblewrap not available, using basic subprocess isolation")
+            result = subprocess.run(
+                [sys.executable, str(SANDBOX_RUNNER)],
+                input=sandbox_input,
+                capture_output=True,
+                text=True,
+                timeout=HANDLER_TIMEOUT,
+                env={
+                    'PATH': '/usr/bin:/bin',
+                    'PYTHONPATH': '',
+                    'HOME': '/tmp',
+                }
+            )
 
         # Parse the output from the sandbox
         if result.stdout:
