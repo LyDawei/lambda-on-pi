@@ -106,13 +106,11 @@ def execute_handler_isolated(func_name: str, event: dict, context: dict) -> dict
     """
     Execute a function handler in an isolated sandbox.
 
-    Uses bubblewrap (bwrap) on Linux for strong isolation:
+    Requires bubblewrap (bwrap) on Linux for strong isolation:
     - Filesystem: Read-only except for logs directory
     - Network: Completely blocked
     - Namespaces: Isolated PID, IPC, UTS, user, cgroup
     - Resources: Timeout protection
-
-    Falls back to basic subprocess isolation if bwrap is unavailable.
 
     Args:
         func_name: Name of the function to execute
@@ -125,8 +123,14 @@ def execute_handler_isolated(func_name: str, event: dict, context: dict) -> dict
     Raises:
         FileNotFoundError: If the function doesn't exist
         TimeoutError: If the handler exceeds the timeout limit
-        RuntimeError: If the handler execution fails
+        RuntimeError: If the handler execution fails or sandbox unavailable
     """
+    if not USE_BWRAP:
+        raise RuntimeError(
+            "Sandbox unavailable: bubblewrap (bwrap) is required for secure execution. "
+            "Install with: sudo apt install bubblewrap"
+        )
+
     func_path = FUNCTIONS_DIR / func_name / 'handler.py'
     if not func_path.exists():
         raise FileNotFoundError(f'Function {func_name} not found')
@@ -140,35 +144,19 @@ def execute_handler_isolated(func_name: str, event: dict, context: dict) -> dict
     })
 
     try:
-        if USE_BWRAP:
-            # Use bubblewrap for strong Linux sandboxing
-            cmd = _build_bwrap_command(func_path)
-            result = subprocess.run(
-                cmd,
-                input=sandbox_input,
-                capture_output=True,
-                text=True,
-                timeout=HANDLER_TIMEOUT,
-                env={
-                    'PATH': '/usr/bin:/bin',
-                    'HOME': '/tmp',
-                }
-            )
-        else:
-            # Fallback: basic subprocess isolation (no bwrap available)
-            logger.warning("bubblewrap not available, using basic subprocess isolation")
-            result = subprocess.run(
-                [sys.executable, str(SANDBOX_RUNNER)],
-                input=sandbox_input,
-                capture_output=True,
-                text=True,
-                timeout=HANDLER_TIMEOUT,
-                env={
-                    'PATH': '/usr/bin:/bin',
-                    'PYTHONPATH': '',
-                    'HOME': '/tmp',
-                }
-            )
+        # Use bubblewrap for strong Linux sandboxing
+        cmd = _build_bwrap_command(func_path)
+        result = subprocess.run(
+            cmd,
+            input=sandbox_input,
+            capture_output=True,
+            text=True,
+            timeout=HANDLER_TIMEOUT,
+            env={
+                'PATH': '/usr/bin:/bin',
+                'HOME': '/tmp',
+            }
+        )
 
         # Parse the output from the sandbox
         if result.stdout:
