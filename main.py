@@ -109,7 +109,7 @@ def execute_handler_isolated(func_name: str, event: dict, context: dict) -> dict
 
     Requires bubblewrap (bwrap) on Linux for strong isolation:
     - Filesystem: Read-only except for logs directory
-    - Network: Completely blocked
+    - Network: Outbound allowed, sniffing blocked (no CAP_NET_RAW)
     - Namespaces: Isolated PID, IPC, UTS, user, cgroup
     - Resources: Timeout protection
 

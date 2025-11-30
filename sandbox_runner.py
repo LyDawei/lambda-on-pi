@@ -15,51 +15,7 @@ Security features:
 import importlib.util
 import json
 import sys
-import os
 from pathlib import Path
-
-
-def create_restricted_globals():
-    """
-    Create a restricted globals dict for handler execution.
-    Only allows safe built-in functions and modules.
-    """
-    safe_builtins = {
-        'abs': abs,
-        'all': all,
-        'any': any,
-        'bool': bool,
-        'dict': dict,
-        'enumerate': enumerate,
-        'filter': filter,
-        'float': float,
-        'format': format,
-        'frozenset': frozenset,
-        'int': int,
-        'isinstance': isinstance,
-        'len': len,
-        'list': list,
-        'map': map,
-        'max': max,
-        'min': min,
-        'print': print,
-        'range': range,
-        'repr': repr,
-        'reversed': reversed,
-        'round': round,
-        'set': set,
-        'slice': slice,
-        'sorted': sorted,
-        'str': str,
-        'sum': sum,
-        'tuple': tuple,
-        'type': type,
-        'zip': zip,
-        'None': None,
-        'True': True,
-        'False': False,
-    }
-    return {'__builtins__': safe_builtins}
 
 
 def load_and_execute(func_name: str, func_path: str, event: dict, context: dict) -> dict:
