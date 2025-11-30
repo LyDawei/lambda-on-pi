@@ -50,7 +50,8 @@ def _build_bwrap_command(func_path: Path) -> list:
     - Read-only access to Python and system libraries
     - Read-only access to the function handler
     - Read-write access only to logs directory
-    - No network access
+    - Outbound network allowed (for API calls)
+    - No network sniffing (CAP_NET_RAW/CAP_NET_ADMIN stripped via user namespace)
     - Isolated PID/IPC/UTS namespaces
     - Temporary /tmp filesystem
     """
@@ -59,14 +60,14 @@ def _build_bwrap_command(func_path: Path) -> list:
 
     cmd = [
         BWRAP_PATH,
-        # Namespace isolation
+        # Namespace isolation (user namespace strips dangerous capabilities like CAP_NET_RAW)
         '--unshare-user',
         '--unshare-pid',
         '--unshare-ipc',
         '--unshare-uts',
         '--unshare-cgroup',
-        # Network isolation - block all network access
-        '--unshare-net',
+        # Network: Allow outbound connections for API calls
+        # Sniffing is prevented by --unshare-user which strips CAP_NET_RAW/CAP_NET_ADMIN
         # Die when parent process dies
         '--die-with-parent',
         # New session to prevent terminal access
@@ -77,7 +78,7 @@ def _build_bwrap_command(func_path: Path) -> list:
         '--ro-bind', '/bin', '/bin',
         # Symlink for /lib64 if it exists (common on 64-bit systems)
         *(('--ro-bind', '/lib64', '/lib64') if Path('/lib64').exists() else ()),
-        # /etc for basic system config (timezone, etc.) - read-only
+        # /etc for basic system config (timezone, resolv.conf for DNS, etc.) - read-only
         '--ro-bind', '/etc', '/etc',
         # Python executable (in case it's not in /usr)
         '--ro-bind', python_path, python_path,
