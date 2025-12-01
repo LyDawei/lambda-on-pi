@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -18,9 +19,6 @@ SANDBOX_RUNNER = BASE_DIR / 'sandbox_runner.py'
 
 # Security: Maximum execution time for handlers (in seconds)
 HANDLER_TIMEOUT = 30
-
-# Security: Maximum memory for handlers (256MB)
-HANDLER_MAX_MEMORY = 256 * 1024 * 1024
 
 # Security: API key for deploy endpoint (set via environment variable)
 DEPLOY_API_KEY = os.environ.get('LAMBDA_DEPLOY_API_KEY')
@@ -302,7 +300,7 @@ async def deploy(
             detail="Deployment disabled: API key not configured"
         )
 
-    if not x_api_key or x_api_key != DEPLOY_API_KEY:
+    if not x_api_key or not secrets.compare_digest(x_api_key, DEPLOY_API_KEY):
         logger.warning(f"Deploy unauthorized attempt request_id={request_id}")
         raise HTTPException(status_code=401, detail="Unauthorized")
 
