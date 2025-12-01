@@ -6,6 +6,7 @@ Minimal FastAPI-based function runner that lets you invoke small Python "lambda"
 ## Project layout
 
 - **main.py** – FastAPI app with a generic `/invoke/{func_name}` endpoint.
+- **sandbox_runner.py** – Isolated execution environment for function handlers.
 - **functions/** – Individual function directories, each with a `handler.py`.
   - `functions/hello/handler.py` – Returns a greeting.
   - `functions/adder/handler.py` – Adds two numbers.
@@ -20,6 +21,23 @@ Minimal FastAPI-based function runner that lets you invoke small Python "lambda"
 
 - Python (matching the version in `.python-version`).
 - `uv` or `pip` to install dependencies.
+- **bubblewrap** (`bwrap`) for secure sandboxed execution.
+
+### Installing bubblewrap
+
+On Debian/Ubuntu/Raspberry Pi OS:
+
+```bash
+sudo apt install bubblewrap
+```
+
+Verify installation:
+
+```bash
+bwrap --version
+```
+
+> **Note:** The server will refuse to execute functions if bubblewrap is not installed.
 
 ## Installation
 
@@ -153,6 +171,32 @@ You can inspect them with:
 cat logs/output.log
 cat logs/notes.log
 ```
+
+## Security
+
+Function handlers run in a **bubblewrap sandbox** that provides strong isolation:
+
+| Protection | Description |
+|------------|-------------|
+| **Process isolation** | Handlers run in a separate subprocess |
+| **Filesystem** | Read-only access; only `logs/` is writable |
+| **Network** | Outbound API calls allowed; sniffing blocked (no `CAP_NET_RAW`) |
+| **Namespaces** | Isolated user, PID, IPC, UTS, and cgroup namespaces |
+| **Timeout** | 30-second execution limit |
+
+### What handlers CAN do
+
+- Make outbound HTTP/API requests
+- Read their own handler code
+- Write to the `logs/` directory
+- Use standard Python libraries
+
+### What handlers CANNOT do
+
+- Read/write files outside their directory and `logs/`
+- Access other processes or system resources
+- Sniff network traffic or open raw sockets
+- Run indefinitely (30s timeout enforced)
 
 ## Adding new functions
 
