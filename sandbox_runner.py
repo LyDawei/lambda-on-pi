@@ -8,14 +8,37 @@ happens via stdin/stdout using JSON.
 
 Security features:
 - Runs in separate process (no shared memory/namespace with main app)
+- Memory limits enforced via resource limits
 - Limited imports available to handlers
 - Structured JSON communication
 - Designed for subprocess timeout enforcement
 """
 import importlib.util
 import json
+import resource
 import sys
 from pathlib import Path
+
+# Security: Maximum memory limit (256MB)
+MAX_MEMORY_BYTES = 256 * 1024 * 1024
+
+
+def set_resource_limits():
+    """Set resource limits for the sandbox process."""
+    try:
+        # Limit virtual memory
+        resource.setrlimit(resource.RLIMIT_AS, (MAX_MEMORY_BYTES, MAX_MEMORY_BYTES))
+        # Limit data segment size
+        resource.setrlimit(resource.RLIMIT_DATA, (MAX_MEMORY_BYTES, MAX_MEMORY_BYTES))
+        # Prevent core dumps
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        # Limit number of processes (prevent fork bombs)
+        resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
+        # Limit number of open files
+        resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
+    except (ValueError, resource.error):
+        # Some limits may not be available on all systems
+        pass
 
 
 def load_and_execute(func_name: str, func_path: str, event: dict, context: dict) -> dict:
@@ -36,7 +59,7 @@ def load_and_execute(func_name: str, func_path: str, event: dict, context: dict)
     if not handler_path.exists():
         return {
             'success': False,
-            'error': f'Function {func_name} not found at {func_path}',
+            'error': f'Function {func_name} not found',
             'error_type': 'FileNotFoundError'
         }
 
@@ -113,6 +136,9 @@ def main():
         "error_type": "..." (only on failure)
     }
     """
+    # Apply resource limits before executing any user code
+    set_resource_limits()
+
     try:
         # Read input from stdin
         input_data = sys.stdin.read()

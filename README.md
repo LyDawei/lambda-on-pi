@@ -183,6 +183,26 @@ Function handlers run in a **bubblewrap sandbox** that provides strong isolation
 | **Network** | Outbound API calls allowed; sniffing blocked (no `CAP_NET_RAW`) |
 | **Namespaces** | Isolated user, PID, IPC, UTS, and cgroup namespaces |
 | **Timeout** | 30-second execution limit |
+| **Memory limit** | 256MB maximum per invocation |
+| **Path validation** | Function names are validated to prevent traversal attacks |
+
+### Deploying functions securely
+
+The `/deploy` endpoint requires an API key. Set the `LAMBDA_DEPLOY_API_KEY` environment variable:
+
+```bash
+export LAMBDA_DEPLOY_API_KEY="your-secret-key-here"
+./run.sh
+```
+
+Then include the key in deploy requests:
+
+```bash
+curl -X POST "http://localhost:8000/deploy" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-secret-key-here" \
+  -d '{"func_name": "myfunc", "func_body": "def handler(event, context):\n    return {\"ok\": True}"}'
+```
 
 ### What handlers CAN do
 
@@ -197,6 +217,8 @@ Function handlers run in a **bubblewrap sandbox** that provides strong isolation
 - Access other processes or system resources
 - Sniff network traffic or open raw sockets
 - Run indefinitely (30s timeout enforced)
+- Use more than 256MB of memory
+- Read sensitive system files (`/etc/passwd`, `/etc/shadow`, etc.)
 
 ## Adding new functions
 
